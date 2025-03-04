@@ -1,43 +1,44 @@
+// 多模型全局配置
 const MODEL_CONFIG = {
   openai: {
     apiUrl: "https://api.openai.com/v1",
-    authType: "header",                  // 认证方式：请求头
-    authHeader: key => `Bearer ${key}`,  // 请求头生成规则
-    pathPrefix: "/openai",
-    requiredHeaders: {
+    authHeader: key => `Bearer ${key}`,
+    pathPrefix: "/openai",        // 请求路径前缀
+    requiredHeaders: {            // 强制要求的请求头
       "Content-Type": "application/json"
     },
-    envKeys: "OPENAI_KEYS"
+    envKeys: "OPENAI-KEYS"        // 环境变量名
   },
   gemini: {
-    apiUrl: "https://api.gemini.com/v1",
-    authType: "query",                   // 认证方式：URL 参数
-    keyParam: "key",                     // URL 参数名
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    authHeader: key => `Bearer ${key}`,
     pathPrefix: "/gemini",
-    requiredHeaders: {},
-    envKeys: "GEMINI_KEYS"
+    requiredHeaders: {
+      "Content-Type": "application/json"
+      },
+    envKeys: "GEMINI-KEYS"
   },
   claude: {
     apiUrl: "https://api.anthropic.com/v1",
-    authType: "header",
     authHeader: key => `x-api-key ${key}`,
     pathPrefix: "/claude",
     requiredHeaders: {
       "Content-Type": "application/json"
     },
-    envKeys: "CLAUDE_KEYS"
+    envKeys: "CLAUDE-KEYS"
   }
 };
 
-const MAX_RETRIES = 3;
-const BASE_DELAY = 1000;
+const MAX_RETRIES = 5;      // 最大重试次数
+const BASE_DELAY = 1000;    // 基础等待时间（毫秒）
 
 export default {
   async fetch(request, env) {
     try {
+      // 解析请求路径确定模型
       const url = new URL(request.url);
       const pathSegments = url.pathname.split('/').filter(Boolean);
-      const model = pathSegments[0];
+      const model = pathSegments[0]; // 第一个路径段为模型标识
 
       // 检查模型是否支持
       const config = MODEL_CONFIG[model];
@@ -45,7 +46,7 @@ export default {
         return new Response(`Unsupported model: ${model}`, { status: 400 });
       }
 
-      // 获取当前模型的 API 密钥池
+      // 获取当前模型的API密钥池
       const API_KEYS = env[config.envKeys]?.split(',') || [];
       if (API_KEYS.length === 0) {
         return new Response(`No API keys for ${model}`, { status: 500 });
@@ -63,32 +64,26 @@ export default {
         try {
           // 轮换 API 密钥
           const apiKey = API_KEYS[retryCount % API_KEYS.length];
-          retryCount++;
 
-          // 构造目标 URL
+          // 构造目标URL
           const targetUrl = new URL(config.apiUrl);
+          // 移除模型前缀路径（如 /openai）
           targetUrl.pathname = url.pathname.replace(`/${model}`, '');
+          // 保留查询参数
           targetUrl.search = url.search;
 
-          // 根据认证类型处理密钥
-          if (config.authType === "header") {
-            // 通过请求头认证（OpenAI/Claude）
-            const headers = new Headers(request.headers);
-            headers.set("Authorization", config.authHeader(apiKey));
-            Object.entries(config.requiredHeaders).forEach(([k, v]) => {
-              headers.set(k, v);
-            });
-            var modifiedHeaders = headers;
-          } else if (config.authType === "query") {
-            // 通过 URL 参数认证（Gemini）
-            targetUrl.searchParams.set(config.keyParam, apiKey);
-            var modifiedHeaders = new Headers(request.headers);
-          }
+          // 设置请求头
+          const headers = new Headers(request.headers);
+          headers.set("Authorization", config.authHeader(apiKey));
+          // 强制覆盖必要请求头
+          Object.entries(config.requiredHeaders).forEach(([k, v]) => {
+            headers.set(k, v);
+          });
 
           // 创建转发请求
           const modifiedRequest = new Request(targetUrl, {
             method: request.method,
-            headers: modifiedHeaders,
+            headers: headers,
             body: requestBody
           });
 
@@ -99,15 +94,18 @@ export default {
           if (response.status === 429) {
             const retryAfter = response.headers.get("Retry-After") || Math.pow(2, retryCount);
             await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+            retryCount++;
             continue;
           }
 
+          // 透传响应（支持流式传输）
           return new Response(response.body, {
             status: response.status,
             headers: response.headers
           });
 
         } catch (error) {
+          retryCount++;
           if (retryCount > MAX_RETRIES) break;
           await new Promise(resolve => setTimeout(resolve, BASE_DELAY * retryCount));
         }
