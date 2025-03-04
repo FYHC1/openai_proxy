@@ -1,0 +1,3 @@
+name = "openai_proxy"  
+main = "openai_proxy.js"
+compatibility_date = "2025-3-4"
