@@ -15,7 +15,7 @@ const MODEL_CONFIG = {
     pathPrefix: "/gemini",
     requiredHeaders: {
       "Content-Type": "application/json"
-      }，
+      },
     envKeys: "GEMINI-KEYS"
   },
   claude: {
