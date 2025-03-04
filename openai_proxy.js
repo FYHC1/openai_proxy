@@ -10,7 +10,7 @@ const MODEL_CONFIG = {
     envKeys: "OPENAI-KEYS"        // 环境变量名
   },
   gemini: {
-    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     authHeader: key => `Bearer ${key}`,
     pathPrefix: "/gemini",
     requiredHeaders: {
